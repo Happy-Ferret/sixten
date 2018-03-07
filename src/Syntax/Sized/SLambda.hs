@@ -8,6 +8,7 @@ import Data.Vector(Vector)
 import qualified Data.Vector as Vector
 
 import Syntax
+import Syntax.Sized
 import TypeRep(TypeRep)
 import Util
 
@@ -15,13 +16,12 @@ data Expr v
   = Var v
   | Global QName
   | Lit Literal
-  | Con QConstr (Vector (Expr v)) -- ^ Fully applied
-  | Lam !NameHint (Type v) (Scope1 Expr v)
-  | App (Expr v) (Expr v)
-  | Let (LetRec Expr v) (Scope LetVar Expr v)
-  | Case (Expr v) (Branches () Expr v)
-  | Anno (Expr v) (Type v)
-  | ExternCode (Extern (Expr v))
+  | Con QConstr (Vector (Typed Expr v)) -- ^ Fully applied
+  | Lam !NameHint (Type v) (TypedScope1 Expr v)
+  | App (Expr v) (Typed Expr v)
+  | Let (LetRec Expr v) (TypedScope LetVar Expr v)
+  | Case (Typed Expr v) (Branches () Expr v)
+  | ExternCode (Extern (Typed Expr v))
   deriving (Foldable, Functor, Traversable)
 
 type Type = Expr
@@ -29,26 +29,24 @@ type Type = Expr
 -------------------------------------------------------------------------------
 -- Helpers
 pattern MkType :: TypeRep -> Expr v
-pattern MkType rep <- (ignoreAnno -> Lit (TypeRep rep))
-  where MkType rep = Lit (TypeRep rep)
+pattern MkType rep = Lit (TypeRep rep)
 
-ignoreAnno :: Expr v -> Expr v
-ignoreAnno (Anno e _) = e
-ignoreAnno e = e
-
-appsView :: Expr v -> (Expr v, Vector (Expr v))
+appsView :: Expr v -> (Expr v, Vector (Typed Expr v))
 appsView = go []
   where
     go args (App e1 e2) = go (e2:args) e1
     go args e = (e, Vector.fromList args)
 
-lamView :: Expr v -> Maybe (NameHint, (), Expr v, Scope () Expr v)
-lamView (Anno e _) = lamView e
+lamView :: Expr v -> Maybe (NameHint, (), Expr v, TypedScope () Expr v)
 lamView (Lam h e s) = Just (h, (), e, s)
 lamView _ = Nothing
 
-let_ :: NameHint -> Expr v -> Type v -> Scope1 Expr v -> Expr v
-let_ h e t s = Let (LetRec $ pure $ LetBinding h (abstractNone e) t) (mapBound (\() -> 0) s)
+typedLamView :: Typed Expr v -> Maybe (NameHint, (), Expr v, TypedScope () Expr v)
+typedLamView (Anno (Lam h e s) _) = Just (h, (), e, s)
+typedLamView _ = Nothing
+
+let_ :: NameHint -> Expr v -> Type v -> TypedScope1 Expr v -> Expr v
+let_ h e t s = Let (LetRec $ pure $ LetBinding h (abstractNone e) t) (typedMapBound (\() -> 0) s)
 
 -------------------------------------------------------------------------------
 -- Instances
@@ -67,8 +65,8 @@ instance Monad Expr where
   return = Var
   expr >>= f = bind f Global expr
 
-pattern Lams :: Telescope () Expr v -> Scope TeleVar Expr v -> Expr v
-pattern Lams tele s <- (bindingsViewM lamView -> Just (tele, s))
+pattern Lams :: Telescope () Expr v -> TypedScope TeleVar Expr v -> Typed Expr v
+pattern Lams tele s <- (typedBindingsViewM typedLamView -> Just (tele, s))
 
 instance GlobalBind Expr where
   global = Global
