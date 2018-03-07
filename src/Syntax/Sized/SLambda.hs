@@ -74,13 +74,12 @@ instance GlobalBind Expr where
     Var v -> f v
     Global v -> g v
     Lit l -> Lit l
-    Con qc es -> Con qc (bind f g <$> es)
+    Con qc es -> Con qc (bound f g <$> es)
     Lam h e s -> Lam h (bind f g e) (bound f g s)
-    App e1 e2 -> App (bind f g e1) (bind f g e2)
+    App e1 e2 -> App (bind f g e1) (bound f g e2)
     Let ds s -> Let (bound f g ds) (bound f g s)
-    Case e brs -> Case (bind f g e) (bound f g brs)
-    Anno e t -> Anno (bind f g e) (bind f g t)
-    ExternCode c -> ExternCode (bind f g <$> c)
+    Case e brs -> Case (bound f g e) (bound f g brs)
+    ExternCode c -> ExternCode (bound f g <$> c)
 
 instance v ~ Doc => Pretty (Expr v) where
   prettyM expr = case expr of
@@ -91,13 +90,11 @@ instance v ~ Doc => Pretty (Expr v) where
     App e1 e2 -> prettyApp (prettyM e1) (prettyM e2)
     Let ds s -> parens `above` letPrec $ withLetHints ds $ \ns ->
       "let" <+> align (prettyLet ns ds)
-      <+> "in" <+> prettyM (instantiateLet (pure . fromName) ns s)
+      <+> "in" <+> prettyM (typedInstantiateLet (pure . fromName) ns s)
     Case e brs -> parens `above` casePrec $
       "case" <+> inviolable (prettyM e) <+>
       "of" <$$> indent 2 (prettyM brs)
-    Anno e t -> parens `above` annoPrec $
-      prettyM e <+> ":" <+> prettyM t
-    (bindingsViewM lamView -> Just (tele, s)) -> parens `above` absPrec $
+    (typedBindingsViewM typedLamView -> Just (tele, s)) -> parens `above` absPrec $
       withTeleHints tele $ \ns ->
         "\\" <> prettyTeleVarTypes ns tele <> "." <+>
         associate absPrec (prettyM $ instantiateTele (pure . fromName) ns s)
