@@ -113,22 +113,22 @@ liftLambda tele lamScope = do
 
 closeLambda
   :: Telescope () SLambda.Expr FV
-  -> Scope TeleVar SLambda.Expr FV
+  -> AnnoScope TeleVar SLambda.Expr FV
   -> Vector FV
-  -> LambdaLift (Telescope () Lifted.Expr Void, Scope TeleVar Lifted.Expr Void)
+  -> LambdaLift (Telescope () Lifted.Expr Void, AnnoScope TeleVar Lifted.Expr Void)
 closeLambda tele lamScope sortedFvs = do
   vs <- forTeleWithPrefixM tele $ \h () s vs -> do
     let e = instantiateTele pure vs s
     e' <- liftExpr e
     freeVar h e'
 
-  let lamExpr = instantiateTele pure vs lamScope
+  let lamExpr = instantiateAnnoTele pure vs lamScope
       vs' = sortedFvs <> vs
       abstr = teleAbstraction vs'
       tele'' = Telescope $ (\v -> TeleArg (varHint v) () $ abstract abstr $ varType v) <$> vs'
 
-  lamExpr' <- liftExpr lamExpr
-  let lamScope' = abstract abstr lamExpr'
+  lamExpr' <- liftAnnoExpr lamExpr
+  let lamScope' = abstractAnno abstr lamExpr'
 
   voidedTele <- traverse (const $ internalError "closeLambda") tele''
   voidedLamScope <- traverse (const $ internalError "closeLambda") lamScope'
@@ -224,7 +224,7 @@ lets
   -> Lifted.Expr FV
 lets = flip $ foldr go
   where
-    go [(v, e)] = Lifted.Let (varHint v) e (varType v) . abstract1 v
+    go [(v, e)] = Lifted.Let (varHint v) (Anno e $ varType v) . abstract1 v
     go _ = error "Circular Lift lets"
 
 liftToDefinitionM
@@ -235,20 +235,20 @@ liftToDefinitionM (Anno (SLambda.Lams tele bodyScope) _) = do
     let e = instantiateTele pure vs $ vacuous s
     e' <- liftExpr e
     freeVar h e'
-  let body = instantiateTele pure vs $ vacuous bodyScope
+  let body = instantiateAnnoTele pure vs $ vacuous bodyScope
       abstr = teleAbstraction vs
       tele' = Telescope $ (\v -> TeleArg (varHint v) () $ abstract abstr $ varType v) <$> vs
-  body' <- liftExpr body
-  let bodyScope' = abstract abstr body'
+  body' <- liftAnnoExpr body
+  let bodyScope' = abstractAnno abstr body'
   return $ Sized.FunctionDef Public Sized.NonClosure $ (\_ -> error "liftToDefinitionM") <$> Sized.Function tele' bodyScope'
 liftToDefinitionM sexpr = do
-  sexpr' <- liftExpr $ vacuous sexpr
+  sexpr' <- liftAnnoExpr $ vacuous sexpr
   logFreeVar 20 "liftToDefinitionM sexpr'" sexpr'
   return $ Sized.ConstantDef Public $ Sized.Constant $ (\_ -> error "liftToDefinitionM 2") <$> sexpr'
 
 liftToDefinition
   :: QName
-  -> SLambda.Expr Void
+  -> Anno SLambda.Expr Void
   -> VIX (Sized.Definition Lifted.Expr Void, [(QName, Sized.Function Lifted.Expr Void)])
 liftToDefinition (QName mname name) expr
   = runLift (QName mname $ name <> "-lifted") (liftToDefinitionM expr)
