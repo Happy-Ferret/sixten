@@ -22,11 +22,11 @@ import Util
 data Anno e v = Anno (e v) (e v)
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
+typeAnno :: Anno e v -> e v
+typeAnno (Anno _ t) = t
+
 data AnnoScope b e a = AnnoScope (Scope b e a) (Scope b e a)
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
-
-instance MFunctor (AnnoScope b) where
-  hoist f (AnnoScope s t) = AnnoScope (hoist f s) (hoist f t)
 
 type AnnoScope1 = AnnoScope ()
 
@@ -39,7 +39,11 @@ instantiateAnno f (AnnoScope se st) = Anno (instantiate f se) (instantiate f st)
 instantiate1Anno :: Monad e => e a -> AnnoScope1 e a -> Anno e a
 instantiate1Anno x (AnnoScope se st) = Anno (Util.instantiate1 x se) (Util.instantiate1 x st)
 
-abstractAnno :: j
+abstractAnno :: Monad e => (a -> Maybe b) -> Anno e a -> AnnoScope b e a
+abstractAnno f (Anno e t) = AnnoScope (abstract f e) (abstract f t)
+
+abstract1Anno :: (Monad e, Eq a) => a -> Anno e a -> AnnoScope1 e a
+abstract1Anno a (Anno e t) = AnnoScope (abstract1 a e) (abstract1 a t)
 
 instantiateAnnoLet
   :: Monad f
@@ -55,21 +59,21 @@ mapAnnoBound f (AnnoScope s s') = AnnoScope (mapBound f s) (mapBound f s')
 
 annoBindingsViewM
   :: (Monad expr, Monad expr')
-  => (forall v'. Anno expr' v' -> Maybe (NameHint, a, expr v', AnnoScope1 expr' v'))
-  -> Anno expr' v
+  => (forall v'. expr' v' -> Maybe (NameHint, a, expr v', AnnoScope1 expr' v'))
+  -> expr' v
   -> Maybe (Telescope a expr v, AnnoScope TeleVar expr' v)
-annoBindingsViewM f expr@(f -> Just _) = Just $ annoBindingsView f expr
+annoBindingsViewM f expr@(f -> Just _) = Just $ annoBindingsView f $ Anno expr $ error "annoBindingsViewM"
 annoBindingsViewM _ _ = Nothing
 
 -- | View consecutive bindings at the same time
 annoBindingsView
   :: (Monad expr, Monad expr')
-  => (forall v'. Anno expr' v' -> Maybe (NameHint, a, expr v', AnnoScope1 expr' v'))
+  => (forall v'. expr' v' -> Maybe (NameHint, a, expr v', AnnoScope1 expr' v'))
   -> Anno expr' v
   -> (Telescope a expr v, AnnoScope TeleVar expr' v)
 annoBindingsView f expr = go 0 $ F <$> expr
   where
-    go x (f -> Just (n, p, e, s)) = (Telescope $ pure (TeleArg n p $ toScope e) <> ns, s')
+    go x (Anno (f -> Just (n, p, e, s)) _) = (Telescope $ pure (TeleArg n p $ toScope e) <> ns, s')
       where
         (Telescope ns, s') = (go $! x + 1) $ instantiate1Anno (return $ B x) s
     go _ e = (Telescope mempty, toAnnoScope e)
@@ -88,6 +92,12 @@ instantiateAnnoTele f vs
 deriveEq1 ''Anno
 deriveOrd1 ''Anno
 deriveShow1 ''Anno
+
+instance MFunctor Anno where
+  hoist f (Anno e t) = Anno (f e) (f t)
+
+instance MFunctor (AnnoScope b) where
+  hoist f (AnnoScope s t) = AnnoScope (hoist f s) (hoist f t)
 
 instance GlobalBound Anno where
   bound f g (Anno e t) = Anno (bind f g e) (bind f g t)

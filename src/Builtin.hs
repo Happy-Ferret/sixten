@@ -16,6 +16,7 @@ import Backend.Target(Target)
 import Builtin.Names
 import Syntax
 import Syntax.Abstract as Abstract
+import Syntax.Sized.Anno
 import qualified Syntax.Sized.Definition as Sized
 import qualified Syntax.Sized.Lifted as Lifted
 import qualified TypeRep
@@ -61,21 +62,19 @@ convertedSignatures :: Target -> HashMap QName Lifted.FunSignature
 convertedSignatures target
   = flip HashMap.mapMaybeWithKey (convertedContext target) $ \name def ->
     case def of
-      Sized.FunctionDef _ _ (Sized.Function tele s) -> case fromScope s of
-        Lifted.Anno _ t -> Just (tele, toScope t)
-        _ -> error $ "Sixten.Builtin.convertedSignatures " <> show name
+      Sized.FunctionDef _ _ (Sized.Function tele (AnnoScope _ s)) -> Just (tele, s)
       Sized.ConstantDef _ _ -> Nothing
       Sized.AliasDef -> Nothing
 
 deref :: Target -> Lifted.Expr v -> Lifted.Expr v
 deref target e
-  = Lifted.Case (Lifted.Sized intRep e)
+  = Lifted.Case e
   $ ConBranches
   $ pure
   $ ConBranch
     Ref
     (Telescope $ pure $ TeleArg "dereferenced" () $ Scope unknownSize)
-    (toScope $ Lifted.Var $ B 0)
+    (toScope $ pure $ B 0)
   where
     unknownSize = global "Sixten.Builtin.deref.UnknownSize"
     intRep = Lifted.MkType $ TypeRep.intRep target
@@ -91,9 +90,9 @@ apply target numArgs
     $ Vector.cons (TeleArg "this" () $ Scope ptrRep)
     $ (\n -> TeleArg (fromText $ "type" <> shower (unTeleVar n)) () $ Scope typeRep) <$> Vector.enumFromN 0 numArgs
     <|> (\n -> TeleArg (fromText $ "x" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 1 + n) <$> Vector.enumFromN 0 numArgs)
-  $ toScope
-  $ Lifted.Sized (Lifted.Global "Sixten.Builtin.apply.unknownSize")
-  $ Lifted.Case (deref target $ Lifted.Var $ B 0)
+  $ toAnnoScope
+  $ flip Anno (Lifted.Global "Sixten.Builtin.apply.unknownSize")
+  $ Lifted.Case (deref target $ pure $ B 0)
   $ ConBranches
   $ pure
   $ ConBranch
@@ -101,10 +100,10 @@ apply target numArgs
     (Telescope $ Vector.fromList
       [TeleArg "f_unknown" () $ Scope ptrRep, TeleArg "n" () $ Scope intRep])
     (toScope
-      $ Lifted.Case (Lifted.Sized intRep $ Lifted.Var $ B 1)
+      $ Lifted.Case (pure $ B 1)
       $ LitBranches
         [LitBranch (Integer $ fromIntegral arity) $ br arity | arity <- 1 :| [2..maxArity]]
-        $ Lifted.Call (global FailName) $ pure $ Lifted.Sized typeRep unitRep)
+        $ Lifted.Call (global FailName) $ pure $ Anno unitRep typeRep)
   where
     unitRep = Lifted.MkType TypeRep.UnitRep
     intRep = Lifted.MkType $ TypeRep.intRep target
@@ -120,26 +119,26 @@ apply target numArgs
         = Lifted.Con Ref
         $ pure
         $ sizedCon target (Lifted.MkType TypeRep.UnitRep) Closure
-        $ Vector.cons (Lifted.Sized ptrRep $ global $ papName (arity - numArgs) numArgs)
-        $ Vector.cons (Lifted.Sized intRep $ Lifted.Lit $ Integer $ fromIntegral $ arity - numArgs)
-        $ Vector.cons (Lifted.Sized ptrRep $ Lifted.Var $ F $ B 0)
-        $ (\n -> Lifted.Sized typeRep $ Lifted.Var $ F $ B $ 1 + n) <$> Vector.enumFromN 0 numArgs
-        <|> (\n -> Lifted.Sized (Lifted.Var $ F $ B $ 1 + n) $ Lifted.Var $ F $ B $ 1 + TeleVar numArgs + n) <$> Vector.enumFromN 0 numArgs
+        $ Vector.cons (Anno (global $ papName (arity - numArgs) numArgs) ptrRep)
+        $ Vector.cons (Anno (Lifted.Lit $ Integer $ fromIntegral $ arity - numArgs) intRep)
+        $ Vector.cons (Anno (pure $ F $ B 0) ptrRep)
+        $ (\n -> Anno (pure $ F $ B $ 1 + n) typeRep) <$> Vector.enumFromN 0 numArgs
+        <|> (\n -> Anno (pure $ F $ B $ 1 + TeleVar numArgs + n) (pure $ F $ B $ 1 + n)) <$> Vector.enumFromN 0 numArgs
       | numArgs == arity
-        = Lifted.PrimCall (ReturnIndirect OutParam) (Lifted.Var $ B 0)
-        $ Vector.cons (directPtr, Lifted.Sized ptrRep $ Lifted.Var $ F $ B 0)
-        $ (\n -> (directType, Lifted.Sized typeRep $ Lifted.Var $ F $ B $ 1 + n)) <$> Vector.enumFromN 0 numArgs
-        <|> (\n -> (Indirect, Lifted.Sized (Lifted.Var $ F $ B $ 1 + n) $ Lifted.Var $ F $ B $ 1 + TeleVar numArgs + n)) <$> Vector.enumFromN 0 numArgs
+        = Lifted.PrimCall (ReturnIndirect OutParam) (pure $ B 0)
+        $ Vector.cons (directPtr, Anno (pure $ F $ B 0) ptrRep)
+        $ (\n -> (directType, Anno (pure $ F $ B $ 1 + n) typeRep)) <$> Vector.enumFromN 0 numArgs
+        <|> (\n -> (Indirect, Anno (pure $ F $ B $ 1 + TeleVar numArgs + n) (pure $ F $ B $ 1 + n))) <$> Vector.enumFromN 0 numArgs
       | otherwise
         = Lifted.Call (global $ applyName $ numArgs - arity)
         $ Vector.cons
-          (Lifted.Sized ptrRep
-          $ Lifted.PrimCall (ReturnIndirect OutParam) (Lifted.Var $ B 0)
-          $ Vector.cons (directPtr, Lifted.Sized ptrRep $ Lifted.Var $ F $ B 0)
-          $ (\n -> (directType, Lifted.Sized typeRep $ Lifted.Var $ F $ B $ 1 + n)) <$> Vector.enumFromN 0 arity
-          <|> (\n -> (Indirect, Lifted.Sized (Lifted.Var $ F $ B $ 1 + n) $ Lifted.Var $ F $ B $ 1 + fromIntegral numArgs + n)) <$> Vector.enumFromN 0 arity)
-        $ (\n -> Lifted.Sized typeRep $ Lifted.Var $ F $ B $ 1 + n) <$> Vector.enumFromN (fromIntegral arity) (numArgs - arity)
-        <|> (\n -> Lifted.Sized (Lifted.Var $ F $ B $ 1 + n) $ Lifted.Var $ F $ B $ 1 + fromIntegral numArgs + n) <$> Vector.enumFromN (fromIntegral arity) (numArgs - arity)
+          (flip Anno ptrRep
+          $ Lifted.PrimCall (ReturnIndirect OutParam) (pure $ B 0)
+          $ Vector.cons (directPtr, Anno (pure $ F $ B 0) ptrRep)
+          $ (\n -> (directType, Anno (pure $ F $ B $ 1 + n) typeRep)) <$> Vector.enumFromN 0 arity
+          <|> (\n -> (Indirect, Anno (pure $ F $ B $ 1 + fromIntegral numArgs + n) (pure $ F $ B $ 1 + n))) <$> Vector.enumFromN 0 arity)
+        $ (\n -> Anno (pure $ F $ B $ 1 + n) typeRep) <$> Vector.enumFromN (fromIntegral arity) (numArgs - arity)
+        <|> (\n -> Anno (pure $ F $ B $ 1 + fromIntegral numArgs + n) (pure $ F $ B $ 1 + n)) <$> Vector.enumFromN (fromIntegral arity) (numArgs - arity)
 
 pap :: Target -> Int -> Int -> Sized.Definition Lifted.Expr Void
 pap target k m
@@ -149,9 +148,9 @@ pap target k m
     $ Vector.cons (TeleArg "this" () $ Scope ptrRep)
     $ (\n -> TeleArg (fromText $ "type" <> shower (unTeleVar n)) () $ Scope typeRep) <$> Vector.enumFromN 0 k
     <|> (\n -> TeleArg (fromText $ "x" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 1 + n) <$> Vector.enumFromN 0 k)
-  $ toScope
-  $ Lifted.Sized (Lifted.Global "Sixten.Builtin.pap.unknownSize")
-  $ Lifted.Case (deref target $ Lifted.Var $ B 0)
+  $ toAnnoScope
+  $ flip Anno (Lifted.Global "Sixten.Builtin.pap.unknownSize")
+  $ Lifted.Case (deref target $ pure $ B 0)
   $ ConBranches
   $ pure
   $ ConBranch
@@ -164,22 +163,22 @@ pap target k m
       <|> (\n -> TeleArg (fromText $ "y" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 3 + n) <$> Vector.enumFromN 0 m)
     (toScope
       $ Lifted.Call (global $ applyName $ m + k)
-      $ Vector.cons (Lifted.Sized ptrRep $ Lifted.Var $ B 2)
-      $ (\n -> Lifted.Sized typeRep $ Lifted.Var $ B $ 3 + n) <$> Vector.enumFromN 0 m
-      <|> (\n -> Lifted.Sized typeRep $ Lifted.Var $ F $ B $ 1 + n) <$> Vector.enumFromN 0 k
-      <|> (\n -> Lifted.Sized (Lifted.Var $ B $ 3 + n) $ Lifted.Var $ B $ 3 + TeleVar m + n) <$> Vector.enumFromN 0 m
-      <|> (\n -> Lifted.Sized (Lifted.Var $ F $ B $ 1 + n) $ Lifted.Var $ F $ B $ 1 + TeleVar k + n) <$> Vector.enumFromN 0 k
+      $ Vector.cons (Anno (pure $ B 2) ptrRep)
+      $ (\n -> Anno (pure $ B $ 3 + n) typeRep) <$> Vector.enumFromN 0 m
+      <|> (\n -> Anno (pure $ F $ B $ 1 + n) typeRep) <$> Vector.enumFromN 0 k
+      <|> (\n -> Anno (pure $ B $ 3 + TeleVar m + n) (pure $ B $ 3 + n)) <$> Vector.enumFromN 0 m
+      <|> (\n -> Anno (pure $ F $ B $ 1 + TeleVar k + n) (pure $ F $ B $ 1 + n)) <$> Vector.enumFromN 0 k
     )
   where
     intRep = Lifted.MkType $ TypeRep.intRep target
     ptrRep = Lifted.MkType $ TypeRep.ptrRep target
     typeRep = Lifted.MkType $ TypeRep.typeRep target
 
-sizedCon :: Target -> Lifted.Expr v -> QConstr -> Vector (Lifted.Expr v) -> Lifted.Expr v
+sizedCon :: Target -> Lifted.Expr v -> QConstr -> Vector (Anno Lifted.Expr v) -> Anno Lifted.Expr v
 sizedCon target tagRep qc args
-  = Lifted.Sized (productTypes target $ Vector.cons tagRep argTypes) (Lifted.Con qc args)
+  = Anno (Lifted.Con qc args) (productTypes target $ Vector.cons tagRep argTypes)
   where
-    argTypes = Lifted.typeOf <$> args
+    argTypes = typeAnno <$> args
 
 productType :: Target -> Lifted.Expr v -> Lifted.Expr v -> Lifted.Expr v
 productType _ a (Lifted.MkType TypeRep.UnitRep) = a
@@ -187,7 +186,7 @@ productType _ (Lifted.MkType TypeRep.UnitRep) b = b
 productType _ (Lifted.MkType rep1) (Lifted.MkType rep2) = Lifted.MkType $ TypeRep.product rep1 rep2
 productType target a b
   = Lifted.Call (global ProductTypeRepName)
-  $ Vector.fromList [Lifted.Anno a (Lifted.MkType typeRep), Lifted.Anno b (Lifted.MkType typeRep)]
+  $ Vector.fromList [Anno a (Lifted.MkType typeRep), Anno b (Lifted.MkType typeRep)]
   where
      typeRep = TypeRep.typeRep target
 
