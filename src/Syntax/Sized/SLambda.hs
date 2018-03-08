@@ -8,7 +8,7 @@ import Data.Vector(Vector)
 import qualified Data.Vector as Vector
 
 import Syntax
-import Syntax.Sized
+import Syntax.Sized.Anno
 import TypeRep(TypeRep)
 import Util
 
@@ -16,12 +16,12 @@ data Expr v
   = Var v
   | Global QName
   | Lit Literal
-  | Con QConstr (Vector (Typed Expr v)) -- ^ Fully applied
-  | Lam !NameHint (Type v) (TypedScope1 Expr v)
-  | App (Expr v) (Typed Expr v)
-  | Let (LetRec Expr v) (TypedScope LetVar Expr v)
-  | Case (Typed Expr v) (Branches () Expr v)
-  | ExternCode (Extern (Typed Expr v))
+  | Con QConstr (Vector (Anno Expr v)) -- ^ Fully applied
+  | Lam !NameHint (Type v) (AnnoScope1 Expr v)
+  | App (Expr v) (Anno Expr v)
+  | Let (LetRec Expr v) (Scope LetVar Expr v)
+  | Case (Anno Expr v) (Branches () Expr v)
+  | ExternCode (Extern (Anno Expr v))
   deriving (Foldable, Functor, Traversable)
 
 type Type = Expr
@@ -31,22 +31,22 @@ type Type = Expr
 pattern MkType :: TypeRep -> Expr v
 pattern MkType rep = Lit (TypeRep rep)
 
-appsView :: Expr v -> (Expr v, Vector (Typed Expr v))
+appsView :: Expr v -> (Expr v, Vector (Anno Expr v))
 appsView = go []
   where
     go args (App e1 e2) = go (e2:args) e1
     go args e = (e, Vector.fromList args)
 
-lamView :: Expr v -> Maybe (NameHint, (), Expr v, TypedScope () Expr v)
+lamView :: Expr v -> Maybe (NameHint, (), Expr v, AnnoScope () Expr v)
 lamView (Lam h e s) = Just (h, (), e, s)
 lamView _ = Nothing
 
-typedLamView :: Typed Expr v -> Maybe (NameHint, (), Expr v, TypedScope () Expr v)
-typedLamView (Anno (Lam h e s) _) = Just (h, (), e, s)
-typedLamView _ = Nothing
+annoLamView :: Anno Expr v -> Maybe (NameHint, (), Expr v, AnnoScope () Expr v)
+annoLamView (Anno (Lam h e s) _) = Just (h, (), e, s)
+annoLamView _ = Nothing
 
-let_ :: NameHint -> Expr v -> Type v -> TypedScope1 Expr v -> Expr v
-let_ h e t s = Let (LetRec $ pure $ LetBinding h (abstractNone e) t) (typedMapBound (\() -> 0) s)
+let_ :: NameHint -> Expr v -> Type v -> Scope1 Expr v -> Expr v
+let_ h e t s = Let (LetRec $ pure $ LetBinding h (abstractNone e) t) (mapBound (\() -> 0) s)
 
 -------------------------------------------------------------------------------
 -- Instances
@@ -65,8 +65,8 @@ instance Monad Expr where
   return = Var
   expr >>= f = bind f Global expr
 
-pattern Lams :: Telescope () Expr v -> TypedScope TeleVar Expr v -> Typed Expr v
-pattern Lams tele s <- (typedBindingsViewM typedLamView -> Just (tele, s))
+pattern Lams :: Telescope () Expr v -> AnnoScope TeleVar Expr v -> Anno Expr v
+pattern Lams tele s <- (annoBindingsViewM annoLamView -> Just (tele, s))
 
 instance GlobalBind Expr where
   global = Global
@@ -90,13 +90,13 @@ instance v ~ Doc => Pretty (Expr v) where
     App e1 e2 -> prettyApp (prettyM e1) (prettyM e2)
     Let ds s -> parens `above` letPrec $ withLetHints ds $ \ns ->
       "let" <+> align (prettyLet ns ds)
-      <+> "in" <+> prettyM (typedInstantiateLet (pure . fromName) ns s)
+      <+> "in" <+> prettyM (instantiateLet (pure . fromName) ns s)
     Case e brs -> parens `above` casePrec $
       "case" <+> inviolable (prettyM e) <+>
       "of" <$$> indent 2 (prettyM brs)
-    (typedBindingsViewM typedLamView -> Just (tele, s)) -> parens `above` absPrec $
+    (annoBindingsViewM annoLamView . flip Anno (Var "dummy") -> Just (tele, s)) -> parens `above` absPrec $
       withTeleHints tele $ \ns ->
         "\\" <> prettyTeleVarTypes ns tele <> "." <+>
-        associate absPrec (prettyM $ instantiateTele (pure . fromName) ns s)
+        associate absPrec (prettyM $ instantiateAnnoTele (pure . fromName) ns s)
     Lam {} -> error "impossible prettyPrec lam"
     ExternCode c -> prettyM c
