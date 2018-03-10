@@ -127,7 +127,7 @@ infer expr = case expr of
     (s', sloc) <- infer $ instantiate1 (pure v) s
     return (Let h e' $ abstract1 v s', sloc)
   Case e brs -> do
-    (e', eloc) <- infer e
+    (e', eloc) <- inferAnno e
     (brs', loc) <- inferBranches eloc brs
     return (Case e' brs', loc)
   ExternCode c retType -> do

@@ -19,7 +19,7 @@ denat expr = case expr of
   Lam h t e -> Lam h (denat t) (hoist denat e)
   App e1 e2 -> App (denat e1) (denatAnno e2)
   Let ds s -> Let (hoist denat ds) (hoist denat s)
-  Case e brs -> denatCase (denat e) brs
+  Case e brs -> denatCase (denatAnno e) brs
   ExternCode c retType -> ExternCode (denatAnno <$> c) (denat retType)
 
 denatAnno
@@ -28,13 +28,13 @@ denatAnno
 denatAnno (Anno e t) = Anno (denat e) (denat t)
 
 denatCase
-  :: Expr v
+  :: Anno Expr v
   -> Branches () Expr v
   -> Expr v
-denatCase expr (ConBranches [ConBranch ZeroConstr _ztele zs, ConBranch SuccConstr _stele ss])
+denatCase (Anno expr _) (ConBranches [ConBranch ZeroConstr _ztele zs, ConBranch SuccConstr _stele ss])
   = let_ mempty expr (global NatName)
   $ toScope
-  $ Case (pure $ B ())
+  $ Case (Anno (pure $ B ()) (global NatName))
     (LitBranches
       (pure (LitBranch (Integer 0) $ F <$> instantiate (error "denatCase zs") (hoist denat zs)))
       (let_

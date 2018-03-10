@@ -68,7 +68,7 @@ convertedSignatures target
 
 deref :: Lifted.Expr v -> Lifted.Expr v
 deref e
-  = Lifted.Case e
+  = Lifted.Case (Anno e unknownSize)
   $ ConBranches
   $ pure
   $ ConBranch
@@ -76,7 +76,7 @@ deref e
     (Telescope $ pure $ TeleArg "dereferenced" () $ Scope unknownSize)
     (toScope $ pure $ B 0)
   where
-    unknownSize = global "Sixten.Builtin.deref.UnknownSize"
+    unknownSize = global "Sixten.Builtin.deref.unknownSize"
 
 maxArity :: Num n => n
 maxArity = 6
@@ -90,8 +90,8 @@ apply target numArgs
     $ (\n -> TeleArg (fromText $ "type" <> shower (unTeleVar n)) () $ Scope typeRep) <$> Vector.enumFromN 0 numArgs
     <|> (\n -> TeleArg (fromText $ "x" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 1 + n) <$> Vector.enumFromN 0 numArgs)
   $ toAnnoScope
-  $ flip Anno (Lifted.Global "Sixten.Builtin.apply.unknownSize")
-  $ Lifted.Case (deref $ pure $ B 0)
+  $ flip Anno unknownSize
+  $ Lifted.Case (Anno (deref $ pure $ B 0) unknownSize)
   $ ConBranches
   $ pure
   $ ConBranch
@@ -99,7 +99,7 @@ apply target numArgs
     (Telescope $ Vector.fromList
       [TeleArg "f_unknown" () $ Scope ptrRep, TeleArg "n" () $ Scope intRep])
     (toScope
-      $ Lifted.Case (pure $ B 1)
+      $ Lifted.Case (Anno (pure $ B 1) unknownSize)
       $ LitBranches
         [LitBranch (Integer $ fromIntegral arity) $ br arity | arity <- 1 :| [2..maxArity]]
         $ Lifted.Call (global FailName) $ pure $ Anno unitRep typeRep)
@@ -108,6 +108,7 @@ apply target numArgs
     intRep = Lifted.MkType $ TypeRep.intRep target
     ptrRep = Lifted.MkType $ TypeRep.ptrRep target
     typeRep = Lifted.MkType $ TypeRep.typeRep target
+    unknownSize = global "Sixten.Builtin.apply.unknownSize"
 
     directPtr = Direct $ TypeRep.ptrRep target
     directType = Direct $ TypeRep.typeRep target
@@ -148,8 +149,8 @@ pap target k m
     $ (\n -> TeleArg (fromText $ "type" <> shower (unTeleVar n)) () $ Scope typeRep) <$> Vector.enumFromN 0 k
     <|> (\n -> TeleArg (fromText $ "x" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 1 + n) <$> Vector.enumFromN 0 k)
   $ toAnnoScope
-  $ flip Anno (Lifted.Global "Sixten.Builtin.pap.unknownSize")
-  $ Lifted.Case (deref $ pure $ B 0)
+  $ flip Anno unknownSize
+  $ Lifted.Case (Anno (deref $ pure $ B 0) unknownSize)
   $ ConBranches
   $ pure
   $ ConBranch
@@ -169,6 +170,7 @@ pap target k m
       <|> (\n -> Anno (pure $ F $ B $ 1 + TeleVar k + n) (pure $ F $ B $ 1 + n)) <$> Vector.enumFromN 0 k
     )
   where
+    unknownSize = global "Sixten.Builtin.pap.unknownSize"
     intRep = Lifted.MkType $ TypeRep.intRep target
     ptrRep = Lifted.MkType $ TypeRep.ptrRep target
     typeRep = Lifted.MkType $ TypeRep.typeRep target

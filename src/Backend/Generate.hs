@@ -127,9 +127,6 @@ generateByteExpr expr = do
   sizeVar <- generateExpr expr $ Lit $ TypeRep TypeRep.ByteRep
   loadVar TypeRep.ByteRep sizeVar `named` "size"
 
-unknownSize :: Name -> Expr v
-unknownSize n = Global $ unqualified $ "unknownSize." <> n
-
 generateCall
   :: Maybe Language
   -> RetDir
@@ -383,22 +380,22 @@ generateGlobal g = do
     Nothing -> return $ IndirectVar globOperand
 
 generateBranches
-  :: Expr Var
+  :: Anno Expr Var
   -> Branches () Expr Var
   -> (Expr Var -> InstrGen a)
   -> InstrGen [(a, LLVM.Name)]
-generateBranches caseExpr branches brCont = do
+generateBranches (Anno caseExpr caseExprType) branches brCont = do
   intRep <- getIntRep
   intBits <- getIntBits
   typeRep <- getTypeRep
   align <- getPtrAlign
   case branches of
     ConBranches [] -> do
-      void $ generateExpr caseExpr $ unknownSize "noBranches"
+      void $ generateExpr caseExpr caseExprType
       unreachable
       return []
     ConBranches [ConBranch Builtin.Ref tele brScope] -> do
-      genExpr <- generateExpr caseExpr $ unknownSize "caseRef"
+      genExpr <- generateExpr caseExpr caseExprType
       exprInt <- loadVar intRep genExpr `named` "case-expr-int"
       expr <- inttoptr exprInt indirectType `named` "case-expr"
 
@@ -444,7 +441,7 @@ generateBranches caseExpr branches brCont = do
             [_] -> False
             _ -> True
 
-      exprGen <- generateExpr caseExpr $ unknownSize "conBranches"
+      exprGen <- generateExpr caseExpr caseExprType
       expr <- indirect exprGen `named` "case-expr"
 
       failBlock <- freshName "pattern-match-failed"

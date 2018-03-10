@@ -80,7 +80,7 @@ liftExpr expr = case expr of
   SLambda.Con qc es -> Lifted.Con qc <$> mapM liftAnnoExpr es
   SLambda.App e1 e2 -> Lifted.Call <$> liftExpr e1 <*> (pure <$> liftAnnoExpr e2)
   SLambda.Let ds scope -> liftLet ds scope
-  SLambda.Case e brs -> Lifted.Case <$> liftExpr e <*> liftBranches brs
+  SLambda.Case e brs -> Lifted.Case <$> liftAnnoExpr e <*> liftBranches brs
   SLambda.Lams tele s -> liftLambda tele s
   SLambda.Lam {} -> internalError "liftExpr Lam"
   SLambda.ExternCode c retType -> Lifted.ExternCode <$> mapM liftAnnoExpr c <*> liftExpr retType

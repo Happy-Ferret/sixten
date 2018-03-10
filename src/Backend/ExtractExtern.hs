@@ -111,7 +111,7 @@ extractExpr expr = case expr of
     body' <- extractExpr body
     let s' = abstract1 v body'
     return $ Extracted.Let h e' s'
-  Lifted.Case e brs -> Extracted.Case <$> extractExpr e <*> extractBranches brs
+  Lifted.Case e brs -> Extracted.Case <$> extractAnnoExpr e <*> extractBranches brs
   Lifted.ExternCode f typ -> do
     typ' <- extractExpr typ
     f' <- mapM extractAnnoExpr f

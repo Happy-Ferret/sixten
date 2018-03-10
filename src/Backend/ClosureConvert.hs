@@ -141,7 +141,7 @@ convertExpr expr = case expr of
     bodyExpr' <- convertExpr bodyExpr
     let bodyScope' = abstract1 v bodyExpr'
     return $ Let h e' bodyScope'
-  Case e brs -> Case <$> convertExpr e <*> convertBranches brs
+  Case e brs -> Case <$> convertAnnoExpr e <*> convertBranches brs
   ExternCode c retType -> ExternCode <$> mapM convertAnnoExpr c <*> convertExpr retType
 
 unknownCall
@@ -183,7 +183,7 @@ knownCall f (tele, returnTypeScope) args
       $ flip AnnoScope returnTypeScope -- TODO needs fixing up
       $ toScope
       $ fmap B
-      $ Case (Builtin.deref $ Var 0)
+      $ Case (Anno (Builtin.deref $ Var 0) (Global "ClosureConvert.knownCall.unknownSize"))
       $ ConBranches
       $ pure
       $ ConBranch

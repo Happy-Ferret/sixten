@@ -20,7 +20,7 @@ data Expr v
   | Call (Expr v) (Vector (Anno Expr v)) -- ^ Fully applied, only global
   | PrimCall (Maybe Language) RetDir (Expr v) (Vector (Direction, Anno Expr v))
   | Let NameHint (Anno Expr v) (Scope1 Expr v)
-  | Case (Expr v) (Branches () Expr v)
+  | Case (Anno Expr v) (Branches () Expr v)
   deriving (Foldable, Functor, Traversable)
 
 type Type = Expr
@@ -68,7 +68,7 @@ instance GlobalBind Expr where
     Call e es -> Call (bind f g e) (bound f g <$> es)
     PrimCall lang retDir e es -> PrimCall lang retDir (bind f g e) (fmap (bound f g) <$> es)
     Let h e s -> Let h (bound f g e) (bound f g s)
-    Case e brs -> Case (bind f g e) (bound f g brs)
+    Case e brs -> Case (bound f g e) (bound f g brs)
 
 instance Applicative Expr where
   pure = Var

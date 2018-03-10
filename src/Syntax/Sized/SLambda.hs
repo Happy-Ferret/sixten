@@ -20,7 +20,7 @@ data Expr v
   | Lam !NameHint (Type v) (AnnoScope1 Expr v)
   | App (Expr v) (Anno Expr v)
   | Let (LetRec Expr v) (Scope LetVar Expr v)
-  | Case (Expr v) (Branches () Expr v)
+  | Case (Anno Expr v) (Branches () Expr v)
   | ExternCode (Extern (Anno Expr v)) (Type v)
   deriving (Foldable, Functor, Traversable)
 
@@ -74,7 +74,7 @@ instance GlobalBind Expr where
     Lam h e s -> Lam h (bind f g e) (bound f g s)
     App e1 e2 -> App (bind f g e1) (bound f g e2)
     Let ds s -> Let (bound f g ds) (bound f g s)
-    Case e brs -> Case (bind f g e) (bound f g brs)
+    Case e brs -> Case (bound f g e) (bound f g brs)
     ExternCode c retType -> ExternCode (bound f g <$> c) (bind f g retType)
 
 instance v ~ Doc => Pretty (Expr v) where
