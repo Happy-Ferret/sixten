@@ -33,6 +33,9 @@ type AnnoScope1 = AnnoScope ()
 toAnnoScope :: Monad e => Anno e (Var b a) -> AnnoScope b e a
 toAnnoScope (Anno e t) = AnnoScope (toScope e) (toScope t)
 
+fromAnnoScope :: Monad e => AnnoScope b e a -> Anno e (Var b a)
+fromAnnoScope (AnnoScope se st) = Anno (fromScope se) (fromScope st)
+
 instantiateAnno :: Monad e => (b -> e a) -> AnnoScope b e a -> Anno e a
 instantiateAnno f (AnnoScope se st) = Anno (instantiate f se) (instantiate f st)
 

@@ -60,14 +60,14 @@ convertedContext target = HashMap.fromList $ concat
 
 convertedSignatures :: Target -> HashMap QName Lifted.FunSignature
 convertedSignatures target
-  = flip HashMap.mapMaybeWithKey (convertedContext target) $ \name def ->
+  = flip HashMap.mapMaybe (convertedContext target) $ \def ->
     case def of
       Sized.FunctionDef _ _ (Sized.Function tele (AnnoScope _ s)) -> Just (tele, s)
       Sized.ConstantDef _ _ -> Nothing
       Sized.AliasDef -> Nothing
 
-deref :: Target -> Lifted.Expr v -> Lifted.Expr v
-deref target e
+deref :: Lifted.Expr v -> Lifted.Expr v
+deref e
   = Lifted.Case e
   $ ConBranches
   $ pure
@@ -77,7 +77,6 @@ deref target e
     (toScope $ pure $ B 0)
   where
     unknownSize = global "Sixten.Builtin.deref.UnknownSize"
-    intRep = Lifted.MkType $ TypeRep.intRep target
 
 maxArity :: Num n => n
 maxArity = 6
@@ -92,7 +91,7 @@ apply target numArgs
     <|> (\n -> TeleArg (fromText $ "x" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 1 + n) <$> Vector.enumFromN 0 numArgs)
   $ toAnnoScope
   $ flip Anno (Lifted.Global "Sixten.Builtin.apply.unknownSize")
-  $ Lifted.Case (deref target $ pure $ B 0)
+  $ Lifted.Case (deref $ pure $ B 0)
   $ ConBranches
   $ pure
   $ ConBranch
@@ -150,7 +149,7 @@ pap target k m
     <|> (\n -> TeleArg (fromText $ "x" <> shower (unTeleVar n)) () $ Scope $ pure $ B $ 1 + n) <$> Vector.enumFromN 0 k)
   $ toAnnoScope
   $ flip Anno (Lifted.Global "Sixten.Builtin.pap.unknownSize")
-  $ Lifted.Case (deref target $ pure $ B 0)
+  $ Lifted.Case (deref $ pure $ B 0)
   $ ConBranches
   $ pure
   $ ConBranch

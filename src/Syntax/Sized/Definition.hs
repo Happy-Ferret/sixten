@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveFoldable, DeriveFunctor, DeriveTraversable, FlexibleContexts, GADTs, OverloadedStrings #-}
 module Syntax.Sized.Definition where
 
-import Bound
 import Control.Monad.Morph
 import Data.Monoid
 import Data.Void
