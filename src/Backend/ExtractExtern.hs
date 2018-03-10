@@ -168,7 +168,6 @@ extractExtern retType (Extern C parts) = do
         <> "("
         <> Text.intercalate ", " callbackArgNames
         <> ")"
-    ExprMacroPart _ -> error "ExtractExtern expr without anno"
     TargetMacroPart PointerAlignment -> return $ shower $ ptrAlign tgt
 
   name <- mangle <$> freshName

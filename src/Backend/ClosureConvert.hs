@@ -5,6 +5,7 @@ import Control.Applicative
 import Control.Monad.Except
 import Data.Bifunctor
 import qualified Data.HashMap.Lazy as HashMap
+import qualified Data.HashSet as HashSet
 import Data.Maybe
 import Data.Monoid
 import Data.Vector(Vector)
@@ -163,39 +164,15 @@ knownCall
   -> ClosureConvert (Expr FV)
 knownCall f (tele, returnTypeScope) args
   | numArgs < arity = do
-    -- vs <- forM (teleNames tele) $ \h -> freeVar h ()
     target <- getTarget
-    let intRep, ptrRep :: Expr v
-        intRep = MkType $ TypeRep.intRep target
-        ptrRep = MkType $ TypeRep.ptrRep target
-    {- let returnType = instantiateTele pure vs $ vacuous returnTypeScope
-        varIndex = hashedElemIndex vs
-        go v | i < Vector.length fArgs1 = B $ TeleVar $ 2 + i
-             | otherwise = F $ TeleVar $ 1 + numXs - numArgs + i
-          where
-            i = fromMaybe (error "knownCall elemIndex") $ varIndex v -}
-    let tele' = Telescope
-          $ Vector.cons (TeleArg "x_this" () $ Scope ptrRep)
-          $ (\h -> TeleArg h () $ Scope intRep) <$> xs
-          <|> (\(n, h) -> TeleArg h () $ Scope $ pure $ B $ 1 + TeleVar n) <$> Vector.indexed xs
-    fNumArgs <- liftThing
-      $ Sized.Function tele'
-      $ flip AnnoScope returnTypeScope -- TODO needs fixing up
-      $ toScope
-      $ fmap B
-      $ Case (Anno (Builtin.deref $ Var 0) (Global "ClosureConvert.knownCall.unknownSize"))
-      $ ConBranches
-      $ pure
-      $ ConBranch
-        Builtin.Closure
-        (Telescope $ Vector.cons (TeleArg mempty () $ Scope ptrRep)
-                   $ Vector.cons (TeleArg mempty () $ Scope intRep) clArgs')
-        (toScope $ Call (global f) fArgs)
+    piRep <- Lit . TypeRep <$> getPiRep
+    intRep <- Lit . TypeRep <$> getIntRep
+    fNumArgs <- liftClosureFun f (tele, returnTypeScope) numArgs
     return
       $ Con Builtin.Ref
       $ pure
       $ Builtin.sizedCon target (MkType TypeRep.UnitRep) Builtin.Closure
-      $ Vector.cons (Anno (global fNumArgs) ptrRep)
+      $ Vector.cons (Anno (global fNumArgs) piRep)
       $ Vector.cons (Anno (Lit $ Integer $ fromIntegral $ arity - numArgs) intRep) args
   | numArgs == arity
     = return $ Call (global f) args
@@ -205,17 +182,64 @@ knownCall f (tele, returnTypeScope) args
   where
     numArgs = Vector.length args
     arity = teleLength tele
-    clArgs = (\(TeleArg h d s) -> TeleArg h d $ mapBound (+ 2) s) <$> Vector.take numArgs (unTelescope tele)
-    clArgs' = (\(TeleArg h _ s) -> TeleArg h () $ vacuous s) <$> clArgs
-    fArgs1 = Vector.zipWith Anno
-      (Var . B <$> Vector.enumFromN 2 numArgs)
-      ((\(TeleArg _ _ s) -> fromScope s) <$> clArgs')
-    fArgs2 = Vector.zipWith Anno
-      (Var . F <$> Vector.enumFromN (fromIntegral $ 1 + numXs) numXs)
-      (Var . F <$> Vector.enumFromN 1 numXs)
-    xs = Vector.drop numArgs $ teleNames tele
-    numXs = Vector.length xs
-    fArgs = fArgs1 <> fArgs2
+
+liftClosureFun
+  :: QName
+  -> FunSignature
+  -> Int
+  -> ClosureConvert QName
+liftClosureFun f (tele, returnTypeScope) numCaptured = do
+  vs <- forTeleWithPrefixM tele $ \h _ s vs -> do
+    v <- freeVar h ()
+    return (v, instantiateTele pure (fst <$> vs) $ vacuous s)
+
+  typeRep <- Lit . TypeRep <$> getTypeRep
+  ptrRep <- Lit . TypeRep <$> getPtrRep
+  piRep <- Lit . TypeRep <$> getPiRep
+  intRep <- Lit . TypeRep <$> getIntRep
+
+  let (capturedArgs, remainingParams) = Vector.splitAt numCaptured vs
+  this <- freeVar "this" ()
+  typeParams <- forM remainingParams $ \(v, _) -> do
+    v' <- freeVar (varHint v) ()
+    return (v', typeRep)
+  let remainingParams'
+        = flip fmap (Vector.zip remainingParams typeParams)
+        $ \((v, _), (tv, _)) -> (v, pure tv)
+
+  let funParams = pure (this, ptrRep) <> typeParams <> remainingParams'
+      funAbstr = teleAbstraction $ fst <$> funParams
+      funTele = Telescope $ (\(v, t) -> TeleArg (varHint v) () (abstract funAbstr t)) <$> funParams
+
+  unused1 <- freeVar "unused" ()
+  unused2 <- freeVar "unused" ()
+  let clArgs
+        = Vector.cons (unused1, piRep)
+        $ Vector.cons (unused2, intRep)
+        capturedArgs
+      clAbstr = teleAbstraction $ fst <$> clArgs
+      clTele = Telescope $ (\(v, t) -> TeleArg (varHint v) () (abstract clAbstr t)) <$> clArgs
+      funArgs = capturedArgs <> remainingParams'
+      funArgs' = flip fmap funArgs $ \(v, t) -> Anno (pure v) t
+
+  let returnType = instantiateTele pure (fst <$> vs) $ vacuous returnTypeScope
+      fReturnType
+        | any (\x -> HashSet.member x $ toHashSet returnType) $ fst <$> capturedArgs =
+          Case (Anno (Builtin.deref $ pure this) (Global "ClosureConvert.knownCall.unknownSize"))
+          $ ConBranches $ pure $ ConBranch Builtin.Closure clTele
+          $ abstract clAbstr returnType
+        | otherwise = returnType
+
+  liftThing
+    $ fmap (error "liftClosureFun")
+    $ Sized.Function funTele
+    $ abstractAnno funAbstr
+    $ Anno
+      (Case (Anno (Builtin.deref $ pure this) (Global "ClosureConvert.knownCall.unknownSize"))
+      $ ConBranches $ pure $ ConBranch Builtin.Closure clTele
+      $ abstract clAbstr
+      $ Call (global f) funArgs')
+      fReturnType
 
 convertBranches
   :: Branches () Expr FV
