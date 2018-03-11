@@ -193,10 +193,10 @@ liftClosureFun f (tele, returnTypeScope) numCaptured = do
     v <- freeVar h ()
     return (v, instantiateTele pure (fst <$> vs) $ vacuous s)
 
-  typeRep <- Lit . TypeRep <$> getTypeRep
-  ptrRep <- Lit . TypeRep <$> getPtrRep
-  piRep <- Lit . TypeRep <$> getPiRep
-  intRep <- Lit . TypeRep <$> getIntRep
+  typeRep <- MkType <$> getTypeRep
+  ptrRep <- MkType <$> getPtrRep
+  piRep <- MkType <$> getPiRep
+  intRep <- MkType <$> getIntRep
 
   let (capturedArgs, remainingParams) = Vector.splitAt numCaptured vs
   this <- freeVar "this" ()
